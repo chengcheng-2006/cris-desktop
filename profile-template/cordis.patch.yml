@@ -1,0 +1,3 @@
+# Cris profile 种子层：默认不预置任何 provider、key 或本地网关路由。
+# 模型在「设置 → 模型」里由用户填写 provider / baseURL / 模型名 / 凭据。
+[]
