@@ -62,10 +62,22 @@ CRIS_PRIVATE_RULES="/path/outside/review-rules" \
 
 `CRIS_PRIVATE_RULES` 必须指向仓库目录之外的真实规则文件；不得把词表放进候选仓库。默认模式仅用于开发期提示，其退出码不能作为发布依据。final 模式通过仍只是必要条件：还必须由独立脱敏审查覆盖候选文件与 Git 全部历史，并针对准备推送的提交 SHA 给出 `BLOCK=0`；两者通过后才允许推送。闸门不替代二进制或语义审查。
 
+## Gatekeeper 与签名状态
+
+当前构建产物使用 ad-hoc 签名，`TeamIdentifier` 未设置；DMG 未签名，也未经过 Apple 公证。这种状态不等于安全认证，macOS Gatekeeper 可能阻止打开从网络下载的应用。不要把本项目描述为已获 Apple 验证。
+
+在本地自行构建时，本次检查的产物没有 `com.apple.quarantine` 隔离标记；其他来源或传输方式可能附加该标记，不能保证所有环境都相同。若你从可信来源取得应用且 Gatekeeper 阻止打开，可在 Finder 中对应用右键并选择“打开”，再确认系统提示。也可在确认来源可信后移除应用上的隔离属性：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Cris.app"
+```
+
+不要对来源不明的应用清除隔离标记。要向陌生用户分发时减少 Gatekeeper 提示，需要 Developer ID 正式签名并提交 Apple 公证；这要求加入 Apple Developer Program（年费，当前通常为 99 美元/年，具体以 Apple 当地价格为准）。本项目当前不提供该证书或公证服务。
+
 ## 已知限制
 
 - 只处理已构建的 macOS 应用，不是完整 DSH fork 或源码构建系统。
-- 正式代码签名和 Apple 公证未验证；当前构建可能使用 ad-hoc 签名。
+- 正式 Developer ID 签名和 Apple 公证未完成；当前构建为 ad-hoc 签名，DMG 未签名。
 - Cris 自有更新服务未建立；自动更新链路的禁用方式依赖目标应用内部文件结构。
 - 全新机器的完整安装与首次启动尚未完成独立环境验收。
 - Windows、其他操作系统、各 provider 的兼容情况未验证。
