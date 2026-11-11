@@ -149,6 +149,19 @@ VER=$(python3 -c "import json;print(json.load(open('$TAPP/package.json')).get('v
 
 echo "== 9) 生成 DMG =="
 DMG="$OUT/$APP_NAME-$VER.dmg"; STAGE="$WORK/dmg"
+# 同一次输出目录可重复构建：先摘掉上一次残留的挂载与旧镜像。
+# 残留时 hdiutil 会报「create failed - 目录非空」（目标挂载点 /Volumes/<name> 非空）。
+if mount | grep -qE " on /Volumes/$APP_NAME( |\$)"; then
+  hdiutil detach "/Volumes/$APP_NAME" -force >/dev/null 2>&1 || true
+fi
+if hdiutil info | grep -qF "$DMG"; then
+  for dev in $(hdiutil info | awk -v img="$DMG" '
+    /^image-path/ { hit = (index($0, img) > 0) }
+    /^\/dev\/disk/ { if (hit) print $1 }'); do
+    hdiutil detach "$dev" -force >/dev/null 2>&1 || true
+  done
+fi
+[[ -d "$DMG" ]] && rm -rf "$DMG"
 rm -rf "$STAGE"; mkdir -p "$STAGE"
 ditto "$TARGET_APP" "$STAGE/$APP_NAME.app"
 ln -s /Applications "$STAGE/Applications"
@@ -158,7 +171,7 @@ echo "DMG=$DMG"
 echo "DMG_SIZE=$(du -h "$DMG" | awk '{print $1}')"
 
 echo "== 10) DMG 挂载校验 =="
-MNT="$WORK/mnt"; mkdir -p "$MNT"
+MNT="$WORK/mnt"; rm -rf "$MNT"; mkdir -p "$MNT"
 hdiutil attach -nobrowse -readonly -mountpoint "$MNT" "$DMG" >/dev/null
 MAPP="$MNT/$APP_NAME.app"
 if [[ -d "$MAPP/Contents/Resources/profile-template" ]]; then
