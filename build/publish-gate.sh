@@ -92,10 +92,80 @@ say "4. 邮箱与手机号"
 scan "邮箱/手机号" "$PRIV_RULE" review
 
 say "5. 个人标识（仓库外规则）"
-if [ -n "$PERSONAL_RULE" ]; then
+if [ "${CRIS_PUBLIC_URLS+x}" != x ]; then
   scan "个人标识" "$PERSONAL_RULE" block
 else
-  review "个人标识" "未提供 rules.local，需人工确认"
+  if PERSONAL_HITS=$(CRIS_GATE_PERSONAL_RULE="$PERSONAL_RULE" python3 - "${CRIS_PUBLIC_URLS}" <<'PY'
+import json, os, re, subprocess, sys
+from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
+
+try:
+    root = Path('.').resolve(strict=True)
+    config_path = Path(sys.argv[1]).resolve(strict=True)
+    if not config_path.is_file() or os.path.commonpath((str(root), str(config_path))) == str(root):
+        raise ValueError('invalid config location')
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('duplicate key')
+            result[key] = value
+        return result
+    with config_path.open('r', encoding='utf-8') as f:
+        config = json.load(f, object_pairs_hook=unique_object)
+    if not isinstance(config, dict):
+        raise ValueError('invalid config')
+    compiled = {}
+    for name, urls in config.items():
+        if (not isinstance(name, str) or not name or PurePosixPath(name).is_absolute()
+                or str(PurePosixPath(name)) != name or any(p in ('.', '..') for p in name.split('/'))
+                or any(ord(ch) < 32 or ord(ch) == 127 for ch in name) or ':' in name):
+            raise ValueError('invalid relative path')
+        if not isinstance(urls, list) or not urls or len(urls) != len(set(urls)):
+            raise ValueError('invalid URL list')
+        checks = []
+        for url in urls:
+            if not isinstance(url, str) or not url.isascii() or any(ch.isspace() or ord(ch) < 32 for ch in url):
+                raise ValueError('invalid URL')
+            parsed = urlsplit(url)
+            if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+                raise ValueError('invalid URL')
+            # Match only a complete URL, never a prefix of another URL or a longer token.
+            checks.append(re.compile(rb'(?<![A-Za-z0-9._~%+/@:-])' + re.escape(url.encode('ascii')) + rb'(?=$|[\s)\]}>"\x27])'))
+        compiled[name] = checks
+    rule = os.environ['CRIS_GATE_PERSONAL_RULE']
+    for directory, dirs, files in os.walk(root, followlinks=False, onerror=lambda _: (_ for _ in ()).throw(OSError('scan error'))):
+        dirs[:] = [d for d in dirs if d not in ('.git', 'node_modules', 'dist')]
+        for name in sorted(files):
+            path = Path(directory) / name
+            if path.is_symlink():
+                raise ValueError('symlink in scan')
+            relative = path.relative_to(root).as_posix()
+            data = path.read_bytes()
+            for pattern in compiled.get(relative, ()):
+                data = pattern.sub(b'[PUBLIC-URL]', data)
+            result = subprocess.run(['grep', '-I', '-n', '-E', '--', rule], input=data, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            if result.returncode not in (0, 1):
+                raise OSError('grep failed')
+            for hit in result.stdout.splitlines():
+                number = hit.split(b':', 1)[0]
+                if not number.isdigit():
+                    raise ValueError('invalid grep output')
+                print(f'./{relative}:{number.decode("ascii")}')
+except (OSError, ValueError, TypeError, UnicodeError, json.JSONDecodeError):
+    print('BLOCK   公共 URL 配置或个人标识扫描失败', file=sys.stderr)
+    sys.exit(1)
+PY
+  ); then
+    if [ -n "$PERSONAL_HITS" ]; then
+      while IFS= read -r hit; do block "个人标识" "$hit"; done <<< "$PERSONAL_HITS"
+    else
+      ok "个人标识" "0"
+    fi
+  else
+    block "个人标识" "公共 URL 配置或扫描失败"
+  fi
 fi
 
 say "6. git 历史"
